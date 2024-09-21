@@ -3,7 +3,7 @@
 /bin
 /CMake
 
-/fast_file_compare/target
+/rust_compare/target
 
 /cmp
 

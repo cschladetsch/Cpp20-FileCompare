@@ -34,7 +34,7 @@ echo "diff command time: $diff_time seconds"
 # Test performance of Rust implementation
 echo "Testing Rust implementation..."
 start_rust=$(date +%s.%N)
-fast_file_compare/target/release/fast_file_compare "$FILE1" "$FILE2" > /dev/null
+rust_compare/target/release/fast_file_compare "$FILE1" "$FILE2" > /dev/null
 end_rust=$(date +%s.%N)
 rust_time=$(echo "$end_rust - $start_rust" | bc)
 echo "Rust implementation time: $rust_time seconds"
