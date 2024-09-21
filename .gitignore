@@ -3,6 +3,8 @@
 /bin
 /CMake
 
+/fast_file_compare/target
+
 /cmp
 
 /large_file1.txt
