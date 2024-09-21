@@ -3,7 +3,6 @@
 #include <fstream>
 #include <iostream>
 #include <string>
-#include <string_view>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -11,63 +10,109 @@
 #include <span>
 #include <filesystem>
 #include <iomanip>
+#include <cstring>
+#include <memory>
 
-std::vector<std::string> read_file(const std::string& filename) {
-    std::vector<std::string> lines;
-    std::ifstream file(filename);
-    std::string line;
-    while (std::getline(file, line)) {
-        lines.push_back(std::move(line));
-    }
-    return lines;
-}
+constexpr size_t MAX_LINE_LENGTH = 1024;
+constexpr size_t MAX_LINES = 1000000;
+constexpr size_t CHUNK_SIZE = 1000;
 
-std::string create_diff_marker(const std::string& s1, const std::string& s2) {
-    std::string marker(std::max(s1.length(), s2.length()), ' ');
-    for (size_t i = 0; i < std::min(s1.length(), s2.length()); ++i) {
-        if (s1[i] != s2[i]) {
-            marker[i] = '^';
+struct LineInfo {
+    char* data;
+    size_t length;
+};
+
+class FileLines {
+private:
+    std::unique_ptr<char[]> buffer;
+    std::vector<LineInfo> lines;
+
+public:
+    FileLines(const std::string& filename) {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+        if (!file) {
+            throw std::runtime_error("Unable to open file: " + filename);
+        }
+
+        size_t file_size = file.tellg();
+        file.seekg(0);
+
+        buffer = std::make_unique<char[]>(file_size + 1);
+        file.read(buffer.get(), file_size);
+        buffer[file_size] = '\0';
+
+        char* start = buffer.get();
+        char* end = start;
+        while (*end) {
+            if (*end == '\n') {
+                lines.push_back({start, static_cast<size_t>(end - start)});
+                start = end + 1;
+            }
+            ++end;
+        }
+        if (start != end) {
+            lines.push_back({start, static_cast<size_t>(end - start)});
         }
     }
-    if (s1.length() != s2.length()) {
-        std::fill(marker.begin() + std::min(s1.length(), s2.length()), marker.end(), '^');
+
+    std::span<const LineInfo> get_lines() const {
+        return lines;
     }
-    return marker;
+};
+
+inline bool compare_lines(const LineInfo& l1, const LineInfo& l2) {
+    return l1.length == l2.length && std::memcmp(l1.data, l2.data, l1.length) == 0;
 }
 
-void print_diff_line(std::ostream& out, char prefix, size_t line_num, const std::string& line, size_t max_line_num) {
-    out << prefix << ' ' << std::setw(std::to_string(max_line_num).length()) << line_num << ": " << line << '\n';
+void print_diff_line(std::ostream& out, char prefix, size_t line_num, const LineInfo& line, size_t max_line_num) {
+    out << prefix << ' ' << std::setw(std::to_string(max_line_num).length()) << line_num << ": " 
+        << std::string_view(line.data, line.length) << '\n';
 }
 
 void print_marker_line(std::ostream& out, const std::string& marker, size_t max_line_num) {
     out << std::string(std::to_string(max_line_num).length() + 3, ' ') << marker << '\n';
 }
 
-void compare_files(std::span<const std::string> file1_lines, 
-                   std::span<const std::string> file2_lines,
+std::string create_diff_marker(const LineInfo& s1, const LineInfo& s2) {
+    std::string marker(std::max(s1.length, s2.length), ' ');
+    for (size_t i = 0; i < std::min(s1.length, s2.length); ++i) {
+        if (s1.data[i] != s2.data[i]) {
+            marker[i] = '^';
+        }
+    }
+    if (s1.length != s2.length) {
+        std::fill(marker.begin() + std::min(s1.length, s2.length), marker.end(), '^');
+    }
+    return marker;
+}
+
+void compare_files(std::span<const LineInfo> file1_lines, 
+                   std::span<const LineInfo> file2_lines,
                    std::atomic<size_t>& diff_count,
                    std::mutex& output_mutex) {
-    const size_t chunk_size = 1000;
-    const size_t num_chunks = (file1_lines.size() + chunk_size - 1) / chunk_size;
+    const size_t num_chunks = (file1_lines.size() + CHUNK_SIZE - 1) / CHUNK_SIZE;
     const size_t max_line_num = std::max(file1_lines.size(), file2_lines.size());
 
     std::vector<std::thread> threads;
+    threads.reserve(num_chunks);
+
     for (size_t i = 0; i < num_chunks; ++i) {
         threads.emplace_back([&, i]() {
-            const size_t start = i * chunk_size;
-            const size_t end = std::min(start + chunk_size, file1_lines.size());
+            const size_t start = i * CHUNK_SIZE;
+            const size_t end = std::min(start + CHUNK_SIZE, file1_lines.size());
 
-            std::ostringstream local_output;
+            std::string local_output;
+            local_output.reserve(CHUNK_SIZE * MAX_LINE_LENGTH);
 
             for (size_t j = start; j < end; ++j) {
-                if (j >= file2_lines.size() || file1_lines[j] != file2_lines[j]) {
+                if (j >= file2_lines.size() || !compare_lines(file1_lines[j], file2_lines[j])) {
                     diff_count.fetch_add(1, std::memory_order_relaxed);
                     if (j >= file2_lines.size()) {
                         print_diff_line(local_output, '+', j + 1, file1_lines[j], max_line_num);
-                        print_marker_line(local_output, std::string(file1_lines[j].length(), '^'), max_line_num);
+                        print_marker_line(local_output, std::string(file1_lines[j].length, '^'), max_line_num);
                     } else if (j >= file1_lines.size()) {
                         print_diff_line(local_output, '-', j + 1, file2_lines[j], max_line_num);
-                        print_marker_line(local_output, std::string(file2_lines[j].length(), '^'), max_line_num);
+                        print_marker_line(local_output, std::string(file2_lines[j].length, '^'), max_line_num);
                     } else {
                         print_diff_line(local_output, '-', j + 1, file2_lines[j], max_line_num);
                         print_diff_line(local_output, '+', j + 1, file1_lines[j], max_line_num);
@@ -77,7 +122,7 @@ void compare_files(std::span<const std::string> file1_lines,
             }
 
             std::scoped_lock lock(output_mutex);
-            std::cout << local_output.str();
+            std::cout << local_output;
         });
     }
 
@@ -100,15 +145,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    auto file1_lines = read_file(file1_name);
-    auto file2_lines = read_file(file2_name);
+    try {
+        FileLines file1_lines(file1_name);
+        FileLines file2_lines(file2_name);
 
-    std::atomic<size_t> diff_count = 0;
-    std::mutex output_mutex;
+        std::atomic<size_t> diff_count = 0;
+        std::mutex output_mutex;
 
-    compare_files(file1_lines, file2_lines, diff_count, output_mutex);
+        compare_files(file1_lines.get_lines(), file2_lines.get_lines(), diff_count, output_mutex);
 
-    std::cout << "Total differences: " << diff_count << '\n';
+        std::cout << "Total differences: " << diff_count << '\n';
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << '\n';
+        return 1;
+    }
 
     return 0;
 }
