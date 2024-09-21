@@ -1,26 +1,33 @@
-# Compare Files - Fast Using C++20
+# Fast File Comparison Tool
 
-This project is designed to compare two large text files and highlight the differences between them. It uses multi-threading to efficiently process large files and marks the differences line by line.
+This project provides high-performance file comparison tools implemented in both C++20 and Rust. These tools are designed to efficiently compare large text files and highlight the differences between them, significantly outperforming the standard `diff` command.
 
 ## Project Structure
 
-- **main.cpp**: The main program that compares two files and prints the differences with markers.
-- **CMakeLists.txt**: CMake build configuration for the project.
-- **generate_test_files.py**: A Python script to generate large test files for use with the comparison program.
-- **compare_performance.sh**: A Bash script to benchmark the performance of the custom comparison tool against the `diff` command and a Rust implementation.
+- **C++ Implementation**:
+  - `main.cpp`: The main C++ program for file comparison.
+  - `CMakeLists.txt`: CMake build configuration for the C++ project.
+- **Rust Implementation**:
+  - `src/main.rs`: The main Rust program for file comparison.
+  - `Cargo.toml`: Rust project and dependency configuration.
+- **Shared Resources**:
+  - `generate_test_files.py`: Python script to generate large test files.
+  - `compare_performance.sh`: Bash script to benchmark all implementations.
 
 ## Requirements
 
-- C++20 compiler
-- CMake 3.12 or higher
-- Python 3.6 or higher
+- C++20 compiler (for C++ version)
+- CMake 3.12 or higher (for C++ version)
+- Rust compiler (for Rust version)
+- Python 3.6 or higher (for test file generation)
 - Bash shell (for performance testing)
-- Rust compiler (for the Rust implementation)
 
 ## Build Instructions
 
-1. Clone the repository or download the project files.
-2. Run the following commands to build the C++ project:
+### C++ Version
+
+1. Navigate to the C++ project directory.
+2. Run the following commands:
    ```bash
    mkdir -p build
    cd build
@@ -28,61 +35,62 @@ This project is designed to compare two large text files and highlight the diffe
    make
    ```
    This will generate the `cmp` executable.
-3. To build the Rust implementation, navigate to the Rust project directory and run:
+
+### Rust Version
+
+1. Navigate to the Rust project directory.
+2. Run the following command:
    ```bash
    cargo build --release
    ```
+   This will generate the `fast_file_compare` executable in the `target/release` directory.
 
 ## Usage
 
-### Compare Files
+### Comparing Files
 
-To compare two text files:
+For the C++ version:
 ```bash
 ./cmp <file1> <file2>
 ```
-Where:
-- `file1`: The path to the first file.
-- `file2`: The path to the second file.
 
-Example:
+For the Rust version:
 ```bash
-./cmp large_file1.txt large_file2.txt
+./target/release/fast_file_compare <file1> <file2>
 ```
-The program will print the differences between the two files, marking the lines that are different.
 
-### Generate Test Files
+Where:
+- `file1`: Path to the first file.
+- `file2`: Path to the second file.
 
-To generate large test files, use the `generate_test_files.py` script:
+### Generating Test Files
+
+Use the Python script to generate large test files:
 ```bash
 python3 generate_test_files.py <diff_percentage> <chars_to_change> [--num_lines <num_lines>] [--line_length <line_length>]
 ```
-- `diff_percentage`: The percentage of lines that should differ between the two generated files.
-- `chars_to_change`: The number of characters to change in each different line.
-- `--num_lines`: The total number of lines in each file (default: 1,000,000).
-- `--line_length`: The length of each line (default: 100 characters).
+
+Parameters:
+- `diff_percentage`: Percentage of lines that should differ between the files.
+- `chars_to_change`: Number of characters to change in each different line.
+- `--num_lines`: Total number of lines in each file (default: 1,000,000).
+- `--line_length`: Length of each line (default: 100 characters).
 
 Example:
 ```bash
 python3 generate_test_files.py 5 10 --num_lines 500000 --line_length 80
 ```
-This will generate two files:
-- `large_file1.txt`
-- `large_file2.txt` (with 5% of the lines differing from `large_file1.txt` and 10 characters changed per different line).
 
-### Output
+This generates `large_file1.txt` and `large_file2.txt` with the specified differences.
 
-The comparison program will output the differences in the following format:
+## Output Format
+
+Both implementations output differences in the following format:
 - `+` indicates a line from `file1` that differs.
 - `-` indicates a line from `file2` that differs.
-- A `^` marker shows the specific character positions where the differences occur.
+- `^` markers show specific character positions where differences occur.
 
-## Example
-
-```bash
-./cmp large_file1.txt large_file2.txt
-```
-Output:
+Example output:
 ```
 -  1: hello world
 +  1: hello_world
@@ -92,14 +100,12 @@ Total differences: 1
 
 ## Performance Comparison
 
-You can compare the performance of this tool against the Linux `diff` command and the Rust implementation using the provided `compare_performance.sh` script.
-
-Run the following command:
+Use the `compare_performance.sh` script to benchmark all implementations:
 ```bash
 ./compare_performance.sh large_file1.txt large_file2.txt
 ```
 
-### Sample Results:
+### Sample Results
 
 ```
 Testing custom cmp tool...
@@ -115,12 +121,34 @@ Custom cmp tool is 11.00% faster than Rust implementation
 Rust implementation is 26144.00% faster than diff
 ```
 
-As seen from this comparison:
-1. The custom C++ tool (`cmp`) is significantly faster than the standard `diff` command for large files, showing a speed improvement of over 29,000%.
-2. The custom C++ tool is also slightly faster than the Rust implementation, being about 11% quicker.
-3. The Rust implementation is also much faster than the standard `diff` command, showing a speed improvement of over 26,000%.
+### Key Findings
 
-These results demonstrate the efficiency of both the C++ and Rust implementations compared to the standard `diff` command, with the C++ version having a slight edge in performance.
+1. Both custom implementations (C++ and Rust) significantly outperform the standard `diff` command.
+2. The C++ implementation shows a slight performance edge over the Rust implementation.
+3. Performance improvements:
+   - C++ version: ~29,277% faster than `diff`
+   - Rust version: ~26,144% faster than `diff`
+   - C++ version: ~11% faster than Rust version
+
+These results demonstrate the efficiency of both implementations, with the C++ version having a slight advantage in raw performance.
+
+## Implementation Details
+
+### C++ Version
+- Uses memory mapping for efficient file I/O.
+- Employs multi-threading for parallel processing of file chunks.
+- Utilizes C++20 features for optimal performance.
+
+### Rust Version
+- Also uses memory mapping (via the `memmap2` crate).
+- Leverages Rust's safety features and zero-cost abstractions.
+- Uses the `rayon` crate for parallel processing.
+
+Both versions prioritize performance while maintaining accuracy in file comparison.
+
+## Contributing
+
+Contributions to improve either implementation are welcome. Please submit pull requests with any enhancements or bug fixes.
 
 ## License
 
