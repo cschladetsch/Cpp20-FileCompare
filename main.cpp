@@ -1,133 +1,71 @@
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <algorithm>
-#include <execution>
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <vector>
-#include <thread>
-#include <mutex>
 #include <atomic>
-#include <span>
-#include <filesystem>
-#include <iomanip>
 #include <cstring>
-#include <memory>
+#include <iostream>
+#include <thread>
+#include <vector>
 
-constexpr size_t MAX_LINE_LENGTH = 1024;
-constexpr size_t MAX_LINES = 1000000;
-constexpr size_t CHUNK_SIZE = 1000;
+constexpr size_t CHUNK_SIZE = 1 << 20; // 1MB chunks
+constexpr size_t MAX_THREADS = 64;
 
-struct LineInfo {
+struct MappedFile {
+    int fd;
     char* data;
-    size_t length;
-};
+    size_t size;
 
-class FileLines {
-private:
-    std::unique_ptr<char[]> buffer;
-    std::vector<LineInfo> lines;
+    MappedFile(const char* filename) {
+        fd = open(filename, O_RDONLY);
+        if (fd == -1) throw std::runtime_error("Failed to open file");
 
-public:
-    FileLines(const std::string& filename) {
-        std::ifstream file(filename, std::ios::ate | std::ios::binary);
-        if (!file) {
-            throw std::runtime_error("Unable to open file: " + filename);
-        }
+        struct stat sb;
+        if (fstat(fd, &sb) == -1) throw std::runtime_error("Failed to get file size");
+        size = sb.st_size;
 
-        size_t file_size = file.tellg();
-        file.seekg(0);
-
-        buffer = std::make_unique<char[]>(file_size + 1);
-        file.read(buffer.get(), file_size);
-        buffer[file_size] = '\0';
-
-        char* start = buffer.get();
-        char* end = start;
-        while (*end) {
-            if (*end == '\n') {
-                lines.push_back({start, static_cast<size_t>(end - start)});
-                start = end + 1;
-            }
-            ++end;
-        }
-        if (start != end) {
-            lines.push_back({start, static_cast<size_t>(end - start)});
-        }
+        data = static_cast<char*>(mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0));
+        if (data == MAP_FAILED) throw std::runtime_error("Failed to map file");
     }
 
-    std::span<const LineInfo> get_lines() const {
-        return lines;
+    ~MappedFile() {
+        munmap(data, size);
+        close(fd);
     }
 };
 
-inline bool compare_lines(const LineInfo& l1, const LineInfo& l2) {
-    return l1.length == l2.length && std::memcmp(l1.data, l2.data, l1.length) == 0;
-}
+struct DiffInfo {
+    size_t line;
+    size_t pos;
+    bool is_diff;
+};
 
-void print_diff_line(std::ostream& out, char prefix, size_t line_num, const LineInfo& line, size_t max_line_num) {
-    out << prefix << ' ' << std::setw(std::to_string(max_line_num).length()) << line_num << ": " 
-        << std::string_view(line.data, line.length) << '\n';
-}
-
-void print_marker_line(std::ostream& out, const std::string& marker, size_t max_line_num) {
-    out << std::string(std::to_string(max_line_num).length() + 3, ' ') << marker << '\n';
-}
-
-std::string create_diff_marker(const LineInfo& s1, const LineInfo& s2) {
-    std::string marker(std::max(s1.length, s2.length), ' ');
-    for (size_t i = 0; i < std::min(s1.length, s2.length); ++i) {
-        if (s1.data[i] != s2.data[i]) {
-            marker[i] = '^';
+void find_diffs(const char* data1, const char* data2, size_t start, size_t end, 
+                std::vector<DiffInfo>& diffs, std::atomic<size_t>& total_diffs) {
+    size_t line = 1;
+    size_t pos = start;
+    while (pos < end) {
+        if (data1[pos] != data2[pos]) {
+            diffs.push_back({line, pos, true});
+            total_diffs.fetch_add(1, std::memory_order_relaxed);
+            while (pos < end && data1[pos] != '\n' && data2[pos] != '\n') pos++;
+        } else if (data1[pos] == '\n') {
+            line++;
         }
+        pos++;
     }
-    if (s1.length != s2.length) {
-        std::fill(marker.begin() + std::min(s1.length, s2.length), marker.end(), '^');
-    }
-    return marker;
 }
 
-void compare_files(std::span<const LineInfo> file1_lines, 
-                   std::span<const LineInfo> file2_lines,
-                   std::atomic<size_t>& diff_count,
-                   std::mutex& output_mutex) {
-    const size_t num_chunks = (file1_lines.size() + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    const size_t max_line_num = std::max(file1_lines.size(), file2_lines.size());
-
-    std::vector<std::thread> threads;
-    threads.reserve(num_chunks);
-
-    for (size_t i = 0; i < num_chunks; ++i) {
-        threads.emplace_back([&, i]() {
-            const size_t start = i * CHUNK_SIZE;
-            const size_t end = std::min(start + CHUNK_SIZE, file1_lines.size());
-
-            std::string local_output;
-            local_output.reserve(CHUNK_SIZE * MAX_LINE_LENGTH);
-
-            for (size_t j = start; j < end; ++j) {
-                if (j >= file2_lines.size() || !compare_lines(file1_lines[j], file2_lines[j])) {
-                    diff_count.fetch_add(1, std::memory_order_relaxed);
-                    if (j >= file2_lines.size()) {
-                        print_diff_line(local_output, '+', j + 1, file1_lines[j], max_line_num);
-                        print_marker_line(local_output, std::string(file1_lines[j].length, '^'), max_line_num);
-                    } else if (j >= file1_lines.size()) {
-                        print_diff_line(local_output, '-', j + 1, file2_lines[j], max_line_num);
-                        print_marker_line(local_output, std::string(file2_lines[j].length, '^'), max_line_num);
-                    } else {
-                        print_diff_line(local_output, '-', j + 1, file2_lines[j], max_line_num);
-                        print_diff_line(local_output, '+', j + 1, file1_lines[j], max_line_num);
-                        print_marker_line(local_output, create_diff_marker(file2_lines[j], file1_lines[j]), max_line_num);
-                    }
-                }
-            }
-
-            std::scoped_lock lock(output_mutex);
-            std::cout << local_output;
-        });
-    }
-
-    for (auto& thread : threads) {
-        thread.join();
+void print_diffs(const char* data1, const char* data2, const std::vector<DiffInfo>& diffs) {
+    for (const auto& diff : diffs) {
+        std::cout << "Diff at line " << diff.line << ", position " << diff.pos << ":\n";
+        size_t start = diff.pos;
+        while (start > 0 && data1[start - 1] != '\n') start--;
+        size_t end = diff.pos;
+        while (data1[end] != '\n' && data1[end] != '\0') end++;
+        std::cout << "File 1: " << std::string_view(data1 + start, end - start) << "\n";
+        std::cout << "File 2: " << std::string_view(data2 + start, end - start) << "\n\n";
     }
 }
 
@@ -137,24 +75,42 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::string file1_name = argv[1];
-    const std::string file2_name = argv[2];
-
-    if (!std::filesystem::exists(file1_name) || !std::filesystem::exists(file2_name)) {
-        std::cerr << "Error: One or both files do not exist.\n";
-        return 1;
-    }
-
     try {
-        FileLines file1_lines(file1_name);
-        FileLines file2_lines(file2_name);
+        MappedFile file1(argv[1]);
+        MappedFile file2(argv[2]);
 
-        std::atomic<size_t> diff_count = 0;
-        std::mutex output_mutex;
+        if (file1.size != file2.size) {
+            std::cout << "Files have different sizes. They are not identical.\n";
+            return 0;
+        }
 
-        compare_files(file1_lines.get_lines(), file2_lines.get_lines(), diff_count, output_mutex);
+        std::atomic<size_t> total_diffs = 0;
+        std::vector<std::thread> threads;
+        std::vector<std::vector<DiffInfo>> thread_diffs(MAX_THREADS);
 
-        std::cout << "Total differences: " << diff_count << '\n';
+        size_t chunk_size = std::max(CHUNK_SIZE, file1.size / MAX_THREADS);
+        size_t num_chunks = (file1.size + chunk_size - 1) / chunk_size;
+
+        for (size_t i = 0; i < num_chunks; ++i) {
+            size_t start = i * chunk_size;
+            size_t end = std::min(start + chunk_size, file1.size);
+            threads.emplace_back(find_diffs, file1.data, file2.data, start, end, 
+                                 std::ref(thread_diffs[i % MAX_THREADS]), std::ref(total_diffs));
+        }
+
+        for (auto& thread : threads) {
+            thread.join();
+        }
+
+        if (total_diffs == 0) {
+            std::cout << "Files are identical.\n";
+        } else {
+            std::cout << "Total differences: " << total_diffs << "\n\n";
+            for (const auto& diffs : thread_diffs) {
+                print_diffs(file1.data, file2.data, diffs);
+            }
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << '\n';
         return 1;

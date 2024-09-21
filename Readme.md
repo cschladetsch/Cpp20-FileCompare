@@ -103,9 +103,9 @@ Run the following command:
 
 ```
 Testing custom cmp tool...
-Custom cmp tool time: .311590268 seconds
+Custom cmp tool time: .002142787 seconds
 Testing diff command...
-diff command time: .508468469 seconds
+diff command time: .569286673 seconds
 ```
 
 As seen from this comparison, the custom tool (`cmp`) is faster than the standard `diff` command for large files.
