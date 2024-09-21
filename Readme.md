@@ -8,11 +8,12 @@ This project provides high-performance file comparison tools implemented in both
   - `main.cpp`: The main C++ program for file comparison.
   - `CMakeLists.txt`: CMake build configuration for the C++ project.
 - **Rust Implementation**:
-  - `src/main.rs`: The main Rust program for file comparison.
-  - `Cargo.toml`: Rust project and dependency configuration.
+  - `rust_compare/src/main.rs`: The main Rust program for file comparison.
+  - `rust_compare/Cargo.toml`: Rust project and dependency configuration.
 - **Shared Resources**:
   - `generate_test_files.py`: Python script to generate large test files.
   - `compare_performance.sh`: Bash script to benchmark all implementations.
+  - `br`: Bash script to build both implementations and run tests.
 
 ## Requirements
 
@@ -20,30 +21,27 @@ This project provides high-performance file comparison tools implemented in both
 - CMake 3.12 or higher (for C++ version)
 - Rust compiler (for Rust version)
 - Python 3.6 or higher (for test file generation)
-- Bash shell (for performance testing)
+- Bash shell (for performance testing and build script)
 
 ## Build Instructions
 
-### C++ Version
+Use the `br` script to build both C++ and Rust implementations, generate test files, and run performance comparisons:
 
-1. Navigate to the C++ project directory.
-2. Run the following commands:
-   ```bash
-   mkdir -p build
-   cd build
-   cmake ..
-   make
-   ```
-   This will generate the `cmp` executable.
+```bash
+./br [script_args] -- [python_args]
+```
 
-### Rust Version
+Script arguments:
+- `--force`: Force regeneration of test files even if they already exist.
 
-1. Navigate to the Rust project directory.
-2. Run the following command:
-   ```bash
-   cargo build --release
-   ```
-   This will generate the `rust_compare` executable in the `target/release` directory.
+Python arguments (passed after `--`):
+- Any arguments to be passed to `generate_test_files.py`.
+
+Examples:
+- `./br`: Build both implementations and generate test files if they don't exist.
+- `./br --force`: Build and force regeneration of test files.
+- `./br -- --size 1000000 --complexity high`: Build and generate specific test files.
+- `./br --force -- --size 1000000 --complexity high`: Build, force regenerate specific test files.
 
 ## Usage
 
@@ -56,7 +54,7 @@ For the C++ version:
 
 For the Rust version:
 ```bash
-./target/release/rust_compare <file1> <file2>
+./rust_compare/target/release/rust_compare <file1> <file2>
 ```
 
 Where:
@@ -65,23 +63,23 @@ Where:
 
 ### Generating Test Files
 
-Use the Python script to generate large test files:
+Use the Python script directly or through the `br` script to generate large test files:
 ```bash
-python3 generate_test_files.py <diff_percentage> <chars_to_change> [--num_lines <num_lines>] [--line_length <line_length>]
+python3 generate_test_files.py [options]
 ```
 
-Parameters:
-- `diff_percentage`: Percentage of lines that should differ between the files.
-- `chars_to_change`: Number of characters to change in each different line.
-- `--num_lines`: Total number of lines in each file (default: 1,000,000).
+Options:
+- `--size`: Total number of lines in each file (default: 1,000,000).
 - `--line_length`: Length of each line (default: 100 characters).
+- `--diff_percentage`: Percentage of lines that should differ between the files.
+- `--chars_to_change`: Number of characters to change in each different line.
 
 Example:
 ```bash
-python3 generate_test_files.py 5 10 --num_lines 500000 --line_length 80
+python3 generate_test_files.py --size 500000 --line_length 80 --diff_percentage 5 --chars_to_change 10
 ```
 
-This generates `large_file1.txt` and `large_file2.txt` with the specified differences.
+This generates `test_file_1.txt` and `test_file_2.txt` with the specified differences.
 
 ## Output Format
 
@@ -100,9 +98,9 @@ Total differences: 1
 
 ## Performance Comparison
 
-Use the `compare_performance.sh` script to benchmark all implementations:
+The `br` script automatically runs performance comparisons if both builds are successful. Alternatively, use the `compare_performance.sh` script directly:
 ```bash
-./compare_performance.sh large_file1.txt large_file2.txt
+./compare_performance.sh test_file_1.txt test_file_2.txt
 ```
 
 ### Sample Results

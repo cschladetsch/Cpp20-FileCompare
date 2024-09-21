@@ -7,8 +7,10 @@ build_cpp() {
     if [ $? -eq 0 ]; then
         cp cmp ..
         echo "C++ build successful"
+        CPP_BUILD_SUCCESS=true
     else
         echo "C++ build failed"
+        CPP_BUILD_SUCCESS=false
         exit 1
     fi
     cd ..
@@ -16,17 +18,52 @@ build_cpp() {
 
 # Function to build Rust project
 build_rust() {
-    echo "Building Rust project..."
+    echo "Building Rust project (release mode)..."
     cd rust_compare
-    cargo build
+    cargo build --release
     if [ $? -eq 0 ]; then
         echo "Rust build successful"
+        RUST_BUILD_SUCCESS=true
     else
         echo "Rust build failed"
+        RUST_BUILD_SUCCESS=false
         exit 1
     fi
     cd ..
 }
+
+# Function to generate test files if they don't exist
+generate_test_files() {
+    if [ ! -f "test_file_1.txt" ] || [ ! -f "test_file_2.txt" ]; then
+        echo "Generating test files..."
+        python3 generate_test_files.py $PYTHON_ARGS
+    else
+        echo "Test files already exist. Use --force to regenerate."
+    fi
+}
+
+# Initialize build success flags
+CPP_BUILD_SUCCESS=false
+RUST_BUILD_SUCCESS=false
+
+# Parse arguments
+SCRIPT_ARGS=""
+PYTHON_ARGS=""
+PARSE_PYTHON_ARGS=false
+FORCE_GENERATE=false
+
+for arg in "$@"; do
+    if [ "$arg" = "--" ]; then
+        PARSE_PYTHON_ARGS=true
+    elif [ "$PARSE_PYTHON_ARGS" = "true" ]; then
+        PYTHON_ARGS="$PYTHON_ARGS $arg"
+    else
+        SCRIPT_ARGS="$SCRIPT_ARGS $arg"
+        if [ "$arg" = "--force" ]; then
+            FORCE_GENERATE=true
+        fi
+    fi
+done
 
 # Check for C++ project (CMakeLists.txt)
 if [ -f "CMakeLists.txt" ]; then
@@ -40,6 +77,22 @@ if [ -d "rust_compare" ] && [ -f "rust_compare/Cargo.toml" ]; then
     build_rust
 else
     echo "No Rust project detected (rust_compare/Cargo.toml not found)"
+fi
+
+# Generate test files if they don't exist or if --force is used
+if [ "$FORCE_GENERATE" = "true" ] || [ ! -f "test_file_1.txt" ] || [ ! -f "test_file_2.txt" ]; then
+    echo "Generating test files..."
+    python3 generate_test_files.py $PYTHON_ARGS
+else
+    echo "Test files already exist. Use --force to regenerate."
+fi
+
+# Run performance comparison if both builds were successful
+if [ "$CPP_BUILD_SUCCESS" = "true" ] && [ "$RUST_BUILD_SUCCESS" = "true" ]; then
+    echo "Running performance comparison..."
+    ./compare_performance.sh
+else
+    echo "Skipping performance comparison due to build failure."
 fi
 
 echo "Build process completed"
