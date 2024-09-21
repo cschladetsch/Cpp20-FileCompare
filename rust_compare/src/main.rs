@@ -52,11 +52,6 @@ fn compare_files(path1: &Path, path2: &Path) -> io::Result<usize> {
     let data1 = mmap_file(path1)?;
     let data2 = mmap_file(path2)?;
 
-    if data1.len() != data2.len() {
-        println!("Files have different sizes. They are not identical.");
-        return Ok(1);
-    }
-
     let total_diffs = Arc::new(AtomicUsize::new(0));
     let chunk_size = std::cmp::max(CHUNK_SIZE, data1.len() / rayon::current_num_threads());
 
