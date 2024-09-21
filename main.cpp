@@ -79,11 +79,6 @@ int main(int argc, char* argv[]) {
         MappedFile file1(argv[1]);
         MappedFile file2(argv[2]);
 
-        if (file1.size != file2.size) {
-            std::cout << "Files have different sizes. They are not identical.\n";
-            return 0;
-        }
-
         std::atomic<size_t> total_diffs = 0;
         std::vector<std::thread> threads;
         std::vector<std::vector<DiffInfo>> thread_diffs(MAX_THREADS);
