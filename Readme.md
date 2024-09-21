@@ -43,7 +43,7 @@ This project provides high-performance file comparison tools implemented in both
    ```bash
    cargo build --release
    ```
-   This will generate the `fast_file_compare` executable in the `target/release` directory.
+   This will generate the `rust_compare` executable in the `target/release` directory.
 
 ## Usage
 
@@ -56,7 +56,7 @@ For the C++ version:
 
 For the Rust version:
 ```bash
-./target/release/fast_file_compare <file1> <file2>
+./target/release/rust_compare <file1> <file2>
 ```
 
 Where:
