@@ -1,98 +1,68 @@
-#!/bin/sh
+#!/bin/bash
+# Usage: ./compare_performance.sh <number_of_runs> [file1] [file2]
 
-# Function to build C++ project
-build_cpp() {
-    echo "Building C++ project..."
-    mkdir -p build && cd build && cmake .. && make
-    if [ $? -eq 0 ]; then
-        cp cmp ..
-        echo "C++ build successful"
-        CPP_BUILD_SUCCESS=true
-    else
-        echo "C++ build failed"
-        CPP_BUILD_SUCCESS=false
-        exit 1
-    fi
-    cd ..
-}
-
-# Function to build Rust project
-build_rust() {
-    echo "Building Rust project (release mode)..."
-    cd rust_compare
-    cargo build --release
-    if [ $? -eq 0 ]; then
-        echo "Rust build successful"
-        RUST_BUILD_SUCCESS=true
-    else
-        echo "Rust build failed"
-        RUST_BUILD_SUCCESS=false
-        exit 1
-    fi
-    cd ..
-}
-
-# Function to generate test files if they don't exist
-generate_test_files() {
-    if [ ! -f "test_file_1.txt" ] || [ ! -f "test_file_2.txt" ]; then
-        echo "Generating test files..."
-        python3 generate_test_files.py $PYTHON_ARGS
-    else
-        echo "Test files already exist. Use --force to regenerate."
-    fi
-}
-
-# Initialize build success flags
-CPP_BUILD_SUCCESS=false
-RUST_BUILD_SUCCESS=false
+# Default values
+DEFAULT_RUNS=1
+DEFAULT_FILE1="large_file1.txt"
+DEFAULT_FILE2="large_file2.txt"
+DEFAULT_DIFF_PERCENTAGE=5
+DEFAULT_CHARS_TO_CHANGE=10
 
 # Parse arguments
-SCRIPT_ARGS=""
-PYTHON_ARGS=""
-PARSE_PYTHON_ARGS=false
-FORCE_GENERATE=false
+NUM_RUNS=${1:-$DEFAULT_RUNS}
+FILE1=${2:-$DEFAULT_FILE1}
+FILE2=${3:-$DEFAULT_FILE2}
 
-for arg in "$@"; do
-    if [ "$arg" = "--" ]; then
-        PARSE_PYTHON_ARGS=true
-    elif [ "$PARSE_PYTHON_ARGS" = "true" ]; then
-        PYTHON_ARGS="$PYTHON_ARGS $arg"
-    else
-        SCRIPT_ARGS="$SCRIPT_ARGS $arg"
-        if [ "$arg" = "--force" ]; then
-            FORCE_GENERATE=true
-        fi
-    fi
-done
-
-# Check for C++ project (CMakeLists.txt)
-if [ -f "CMakeLists.txt" ]; then
-    build_cpp
-else
-    echo "No C++ project detected (CMakeLists.txt not found)"
+# Ensure both files exist
+if [ ! -f "$FILE1" ] || [ ! -f "$FILE2" ]; then
+    echo "Error: One or both files do not exist."
+    echo "Usage: $0 <number_of_runs> [file1] [file2]"
+    echo "Default files are $DEFAULT_FILE1 and $DEFAULT_FILE2"
+    exit 1
 fi
 
-# Check for Rust project in rust_compare directory
-if [ -d "rust_compare" ] && [ -f "rust_compare/Cargo.toml" ]; then
-    build_rust
-else
-    echo "No Rust project detected (rust_compare/Cargo.toml not found)"
-fi
+# Generate test files
+python3 generate_test_files.py $DEFAULT_DIFF_PERCENTAGE $DEFAULT_CHARS_TO_CHANGE --num_lines 1000000 --line_length 80
 
-# Generate test files if they don't exist or if --force is used
-if [ "$FORCE_GENERATE" = "true" ] || [ ! -f "test_file_1.txt" ] || [ ! -f "test_file_2.txt" ]; then
-    echo "Generating test files..."
-    python3 generate_test_files.py $PYTHON_ARGS
-else
-    echo "Test files already exist. Use --force to regenerate."
-fi
+# Function to run a command multiple times and calculate average time
+run_test() {
+    local command=$1
+    local runs=$2
+    local total_time=0
 
-# Run performance comparison if both builds were successful
-if [ "$CPP_BUILD_SUCCESS" = "true" ] && [ "$RUST_BUILD_SUCCESS" = "true" ]; then
-    echo "Running performance comparison..."
-    ./compare_performance.sh
-else
-    echo "Skipping performance comparison due to build failure."
-fi
+    for ((i=1; i<=runs; i++))
+    do
+        start=$(date +%s.%N)
+        eval "$command > /dev/null"
+        end=$(date +%s.%N)
+        time=$(echo "$end - $start" | bc)
+        total_time=$(echo "$total_time + $time" | bc)
+    done
 
-echo "Build process completed"
+    echo "scale=6; $total_time / $runs" | bc
+}
+
+# Run tests
+echo "Running tests $NUM_RUNS times each..."
+echo "Comparing files: $FILE1 and $FILE2"
+
+cmp_time=$(run_test "./cmp $FILE1 $FILE2" $NUM_RUNS)
+echo "Average custom cmp tool time: $cmp_time seconds"
+
+diff_time=$(run_test "diff $FILE1 $FILE2" $NUM_RUNS)
+echo "Average diff command time: $diff_time seconds"
+
+rust_time=$(run_test "rust_compare/target/release/fast_file_compare $FILE1 $FILE2" $NUM_RUNS)
+echo "Average Rust implementation time: $rust_time seconds"
+
+# Calculate and display percentage differences
+cmp_vs_diff_percent=$(echo "scale=2; ($diff_time - $cmp_time) / $cmp_time * 100" | bc)
+cmp_vs_rust_percent=$(echo "scale=2; ($rust_time - $cmp_time) / $cmp_time * 100" | bc)
+rust_vs_diff_percent=$(echo "scale=2; ($diff_time - $rust_time) / $rust_time * 100" | bc)
+
+echo ""
+echo "Percentage differences:"
+echo "Custom cmp tool is $(echo $cmp_vs_diff_percent | sed 's/-//g')% faster than diff"
+echo "Custom cmp tool is $(echo $cmp_vs_rust_percent | sed 's/-//g')% faster than Rust implementation"
+echo "Rust implementation is $(echo $rust_vs_diff_percent | sed 's/-//g')% faster than diff"
+
