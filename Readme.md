@@ -7,12 +7,14 @@ This project is designed to compare two large text files and highlight the diffe
 - **main.cpp**: The main program that compares two files and prints the differences with markers.
 - **CMakeLists.txt**: CMake build configuration for the project.
 - **generate_test_files.py**: A Python script to generate large test files for use with the comparison program.
+- **compare_performance.sh**: A Bash script to benchmark the performance of the custom comparison tool against the `diff` command.
 
 ## Requirements
 
 - C++20 compiler
 - CMake 3.12 or higher
 - Python 3.6 or higher
+- Bash shell (for performance testing)
 
 ## Build Instructions
 
@@ -87,6 +89,26 @@ Output:
            ^
 Total differences: 1
 ```
+
+## Performance Comparison
+
+You can compare the performance of this tool against the Linux `diff` command using the provided `compare_performance.sh` script.
+
+Run the following command:
+```bash
+./compare_performance.sh large_file1.txt large_file2.txt
+```
+
+### Sample Results:
+
+```
+Testing custom cmp tool...
+Custom cmp tool time: .311590268 seconds
+Testing diff command...
+diff command time: .508468469 seconds
+```
+
+As seen from this comparison, the custom tool (`cmp`) is faster than the standard `diff` command for large files.
 
 ## License
 
