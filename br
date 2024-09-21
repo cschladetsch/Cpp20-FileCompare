@@ -1,5 +1,45 @@
 #!/bin/sh
 
-mkdir -p build && cd build &&  cmake .. && make && cp cmp ..
+# Function to build C++ project
+build_cpp() {
+    echo "Building C++ project..."
+    mkdir -p build && cd build && cmake .. && make
+    if [ $? -eq 0 ]; then
+        cp cmp ..
+        echo "C++ build successful"
+    else
+        echo "C++ build failed"
+        exit 1
+    fi
+    cd ..
+}
 
+# Function to build Rust project
+build_rust() {
+    echo "Building Rust project..."
+    cd rust_compare
+    cargo build
+    if [ $? -eq 0 ]; then
+        echo "Rust build successful"
+    else
+        echo "Rust build failed"
+        exit 1
+    fi
+    cd ..
+}
 
+# Check for C++ project (CMakeLists.txt)
+if [ -f "CMakeLists.txt" ]; then
+    build_cpp
+else
+    echo "No C++ project detected (CMakeLists.txt not found)"
+fi
+
+# Check for Rust project in rust_compare directory
+if [ -d "rust_compare" ] && [ -f "rust_compare/Cargo.toml" ]; then
+    build_rust
+else
+    echo "No Rust project detected (rust_compare/Cargo.toml not found)"
+fi
+
+echo "Build process completed"
