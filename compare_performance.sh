@@ -1,43 +1,54 @@
 #!/bin/bash
-# Usage: ./compare_performance.sh <file1> <file2>
+# Usage: ./compare_performance.sh <number_of_runs> [file1] [file2]
 
-if [ "$#" -ne 2 ]; then
-    echo "Usage: $0 <file1> <file2>"
-    exit 1
-fi
+# Default values
+DEFAULT_RUNS=1
+DEFAULT_FILE1="large_file1.txt"
+DEFAULT_FILE2="large_file2.txt"
 
-FILE1=$1
-FILE2=$2
+# Parse arguments
+NUM_RUNS=${1:-$DEFAULT_RUNS}
+FILE1=${2:-$DEFAULT_FILE1}
+FILE2=${3:-$DEFAULT_FILE2}
 
 # Ensure both files exist
 if [ ! -f "$FILE1" ] || [ ! -f "$FILE2" ]; then
-    echo "Both files must exist."
+    echo "Error: One or both files do not exist."
+    echo "Usage: $0 <number_of_runs> [file1] [file2]"
+    echo "Default files are $DEFAULT_FILE1 and $DEFAULT_FILE2"
     exit 1
 fi
 
-# Test performance of custom cmp tool
-echo "Testing custom cmp tool..."
-start_cmp=$(date +%s.%N)
-./cmp "$FILE1" "$FILE2" > /dev/null
-end_cmp=$(date +%s.%N)
-cmp_time=$(echo "$end_cmp - $start_cmp" | bc)
-echo "Custom cmp tool time: $cmp_time seconds"
+# Function to run a command multiple times and calculate average time
+run_test() {
+    local command=$1
+    local runs=$2
+    local total_time=0
 
-# Test performance of diff command
-echo "Testing diff command..."
-start_diff=$(date +%s.%N)
-diff "$FILE1" "$FILE2" > /dev/null
-end_diff=$(date +%s.%N)
-diff_time=$(echo "$end_diff - $start_diff" | bc)
-echo "diff command time: $diff_time seconds"
+    for ((i=1; i<=runs; i++))
+    do
+        start=$(date +%s.%N)
+        eval "$command > /dev/null"
+        end=$(date +%s.%N)
+        time=$(echo "$end - $start" | bc)
+        total_time=$(echo "$total_time + $time" | bc)
+    done
 
-# Test performance of Rust implementation
-echo "Testing Rust implementation..."
-start_rust=$(date +%s.%N)
-rust_compare/target/release/fast_file_compare "$FILE1" "$FILE2" > /dev/null
-end_rust=$(date +%s.%N)
-rust_time=$(echo "$end_rust - $start_rust" | bc)
-echo "Rust implementation time: $rust_time seconds"
+    echo "scale=6; $total_time / $runs" | bc
+}
+
+# Run tests
+echo "Running tests $NUM_RUNS times each..."
+echo "Comparing files: $FILE1 and $FILE2"
+
+cmp_time=$(run_test "./cmp $FILE1 $FILE2" $NUM_RUNS)
+echo "Average custom cmp tool time: $cmp_time seconds"
+
+diff_time=$(run_test "diff $FILE1 $FILE2" $NUM_RUNS)
+echo "Average diff command time: $diff_time seconds"
+
+rust_time=$(run_test "rust_compare/target/release/fast_file_compare $FILE1 $FILE2" $NUM_RUNS)
+echo "Average Rust implementation time: $rust_time seconds"
 
 # Calculate and display percentage differences
 cmp_vs_diff_percent=$(echo "scale=2; ($diff_time - $cmp_time) / $cmp_time * 100" | bc)
@@ -49,3 +60,4 @@ echo "Percentage differences:"
 echo "Custom cmp tool is $(echo $cmp_vs_diff_percent | sed 's/-//g')% faster than diff"
 echo "Custom cmp tool is $(echo $cmp_vs_rust_percent | sed 's/-//g')% faster than Rust implementation"
 echo "Rust implementation is $(echo $rust_vs_diff_percent | sed 's/-//g')% faster than diff"
+
