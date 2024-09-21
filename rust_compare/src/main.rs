@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

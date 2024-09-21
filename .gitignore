@@ -4,6 +4,7 @@
 /CMake
 
 /rust_compare/target
+*.lock
 
 /cmp
 
