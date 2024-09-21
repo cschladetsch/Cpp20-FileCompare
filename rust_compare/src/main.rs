@@ -18,6 +18,8 @@ fn find_diffs(data1: &[u8], data2: &[u8], start: usize, end: usize, total_diffs:
     let mut diffs = Vec::new();
     let mut line = data1[..start].iter().filter(|&&b| b == b'\n').count() + 1;
     let mut pos = start;
+    let len = std::cmp::min(data1.len(), data2.len());
+    let end = std::cmp::min(end, len);
 
     while pos < end {
         if data1[pos] != data2[pos] {
@@ -30,6 +32,12 @@ fn find_diffs(data1: &[u8], data2: &[u8], start: usize, end: usize, total_diffs:
             line += 1;
         }
         pos += 1;
+    }
+
+    // If files have different lengths, count the remaining content as differences
+    if data1.len() != data2.len() {
+        let remaining_diffs = data1.len().abs_diff(data2.len());
+        total_diffs.fetch_add(remaining_diffs, Ordering::Relaxed);
     }
 
     diffs
@@ -48,24 +56,22 @@ fn print_diffs(data1: &[u8], data2: &[u8], diffs: &[(usize, usize)]) {
 
 fn compare_files(path1: &Path, path2: &Path) -> io::Result<usize> {
     let start_time = Instant::now();
-
     let data1 = mmap_file(path1)?;
     let data2 = mmap_file(path2)?;
-
     let total_diffs = Arc::new(AtomicUsize::new(0));
     let chunk_size = std::cmp::max(CHUNK_SIZE, data1.len() / rayon::current_num_threads());
+    let max_len = std::cmp::max(data1.len(), data2.len());
 
-    let diffs: Vec<Vec<(usize, usize)>> = (0..data1.len())
+    let diffs: Vec<Vec<(usize, usize)>> = (0..max_len)
         .into_par_iter()
         .step_by(chunk_size)
         .map(|start| {
-            let end = std::cmp::min(start + chunk_size, data1.len());
+            let end = std::cmp::min(start + chunk_size, max_len);
             find_diffs(&data1, &data2, start, end, &total_diffs)
         })
         .collect();
 
     let total_diffs = total_diffs.load(Ordering::Relaxed);
-
     if total_diffs == 0 {
         println!("Files are identical.");
     } else {
@@ -77,7 +83,6 @@ fn compare_files(path1: &Path, path2: &Path) -> io::Result<usize> {
 
     let duration = start_time.elapsed();
     println!("Comparison completed in {:.6} seconds", duration.as_secs_f64());
-
     Ok(total_diffs)
 }
 
@@ -87,11 +92,8 @@ fn main() -> io::Result<()> {
         eprintln!("Usage: {} <file1> <file2>", args[0]);
         std::process::exit(1);
     }
-
     let path1 = Path::new(&args[1]);
     let path2 = Path::new(&args[2]);
-
     compare_files(path1, path2)?;
-
     Ok(())
 }
